@@ -5,7 +5,7 @@ date: 2019-02-27
 categories: ubuntu linux grub
 ---
 
-So the other day I sat down at Starbucks to write some code, but my Ubuntu 18 machine was stuck in GRUB Rescue.
+So the other day I sat down at Starbucks to write code, but my Ubuntu 18 machine was stuck in GRUB Rescue.
 
 After searching and searching (on my phone), I finally found [a quick and easy solution](http://www.linuxandubuntu.com/home/ways-to-rescue-or-recover-grub-menu)!
 
