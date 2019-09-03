@@ -1,30 +1,53 @@
 ---
 layout: post
-title: "Learning to Minecraft Admin"
-date: 2019-09-02
+title: "Learning to Minecraft Admin: Part 2"
+date: 2019-09-03
 categories: ubuntu linux minecraft admin server
 ---
 
-The past six months have been largely consumed with a new business venture. Check out [www.springendurance.com](http://springendurance.com) to see what's up. I've started coaching athletes, mostly runners. I'm hoping to start coaching triathletes as well.
+Mistakes have already been made. Late last night I got a message that the server wasn't logging anyone in. The error codes indicated that connections couldn't be made to Mojang's auth servers, but a friend was able to login to other servers, and I could login to my account page on Mojang's website.
 
-This past week a friend of mine decided to start a new minecraft server and I thought I'd admin it as a side project.
+Immediately I assumed a RAM issue because our server is small. It's 2G and minecraft typically consumes 50-60% of that. free -m didn't show anything unusual. But it was unusual that I had to type in the full command. Tab-completion was throwing an error everytime I tried to use it, and the server seemed sluggish.
 
-I created a few scripts (with help from the internet) to start the server and perform regular backups. Here's a snippet of what I've done so far. (also, I realize this seems basic...but I've been off the blogging grid for a quick minute and I'm trying to inspire myself to get back into it (-: )
+So...
 
-To keep the minecraft server up and running, a screen session is initiated. The server call gets fired inside a loop so whether the server dies unnaturally, or the /stop command is given in the minecraft console, the session will fire the call again.
+{% highlight shell %}
+df -h
+{% endhighlight %}
+
+<img style="width: 100%;" src="/assets/hd-full.png">
+
+Oops. When I scheduled the hourly backups with cron, I didn't think to see how large a backup was, nor did I consider the servers 25G limit. We were maxed out. Deleting a few of the backups followed by a server reboot and everything was running smoothly again. But I clearly needed to rethink my backup strategy. What did I NEED to backup to safely recover a server instance, and how often did I really need to do it.
+
+What constitues a minecraft server instance? I couldn't actually find any documentation online so I just used a bit of common sense to start pulling things out.
+
+After a bit of thought I came up with the following directory structure.
+
+- minecraft
+  - servers (each server gets its own directory)
+  - backups (same as above)
+  - jars (not every server needs access to each version of vanilla or bukkit)
+  - bin (scripts that I'll use to admin the different instances)
+
+So I created a 'rof' (Realm of Fyp) directory in servers and backups. Moved all the relevant configs, plugins, and logs to 'rof'. I then recreated the sym link to the version of bukkit that I'm using in the jars directory.
+
+{% highlight shell %}
+cd /minecraft/servers/rof
+ln s ../../jars/bukkit.jar minecraft_server.jar
+{% endhighlight %}
+
+I edited the run and loop scripts to target the appropriate directory and create a screen session based on the name of that server.
 
 {% highlight shell %}
 #!/bin/sh
-screen -S "Minecraft" bash -c "sh /root/minecraft/loop.sh"
+screen -s rof -dm bash -c "./loop"
 {% endhighlight %}
-
-But just in case the admin wants to stop the server, a 5 second sleep is provided so that the process can be exited manually.
 
 {% highlight shell %}
 #!/bin/sh
 while true
 do
-sudo java -Xmx1900M -jar minecraft_server.jar nogui
+sudo java -Xmx1900M -jar /root/minecraft/servers/rof/minecraft_server.jar nogui
 echo "If you want to completely stop the server process now, press Ctrl+C before the time is up!"
 echo "Rebooting in:"
 for i in 5 4 3 2 1
@@ -36,63 +59,49 @@ echo "Rebooting now!"
 done
 {% endhighlight %}
 
-TODO: make sure that the "Minecraft" screen session is iniated on server start.
+I started the server and logged into the minecraft world only to see that NOTHINGwe had created existed anymore and it was a fresh world. WHAT GIVES! I checked the contents of the minecraft directory and realized that all our worlds had been recreated in the top level directory instead of using the instances that I had copied to /servers/rof.
 
-Next, I wanted to make sure that the minecraft directory is regularly backed up on the occassion someone joins and makes a mess of things.
+Weirdly enough, minecraft will read the configs from the directory in which minecraft_server.jar exists, but it won't use the world instances unless the java -jar command is actually called from that same directory. Thus, minecraft will always use the world files from the pwd when java is run, and create new ones if they don't exist.
 
-Console commands can be executed on the minecraft server by sending them to the screen session in the -X parameter. Before the backup begins, users on the server are notified that a backup is beginning and that Minecrafts auto-save feature will be turned off. Because I'm going to run this backup command hourly as a cron job, I'll compress the minecraft folder into a tarball and keep the last 24 compressions (\*actually 25). Every hour the compressions will be renamed, making it easy to see how many hours ago a backup was created. Finally, I'll turn minecrafts auto-save back on and let the server know that backup it completed.
-
-{% highlight shell %}
-screen -S Minecraft -X stuff "say Backup starting. World no longer saving...don't do anything crazy (-: $(printf '\r')"
-screen -S Minecraft -X stuff "save-off $(printf '\r')"
-screen -S Minecraft -X stuff "save-all \$(printf '\r')"
-sleep 3
-
-cd /root/minecraft/backups
-rm -f minecraft.tar.gz.24
-mv minecraft-hour23.tar.gz minecraft-hour24.tar.gz
-mv minecraft-hour22.tar.gz minecraft-hour23.tar.gz
-mv minecraft-hour21.tar.gz minecraft-hour22.tar.gz
-mv minecraft-hour20.tar.gz minecraft-hour21.tar.gz
-mv minecraft-hour19.tar.gz minecraft-hour20.tar.gz
-mv minecraft-hour18.tar.gz minecraft-hour19.tar.gz
-mv minecraft-hour17.tar.gz minecraft-hour18.tar.gz
-mv minecraft-hour16.tar.gz minecraft-hour17.tar.gz
-mv minecraft-hour15.tar.gz minecraft-hour16.tar.gz
-mv minecraft-hour14.tar.gz minecraft-hour15.tar.gz
-mv minecraft-hour13.tar.gz minecraft-hour14.tar.gz
-mv minecraft-hour12.tar.gz minecraft-hour13.tar.gz
-mv minecraft-hour11.tar.gz minecraft-hour12.tar.gz
-mv minecraft-hour10.tar.gz minecraft-hour11.tar.gz
-mv minecraft-hour9.tar.gz minecraft-hour10.tar.gz
-mv minecraft-hour8.tar.gz minecraft-hour9.tar.gz
-mv minecraft-hour7.tar.gz minecraft-hour8.tar.gz
-mv minecraft-hour6.tar.gz minecraft-hour7.tar.gz
-mv minecraft-hour5.tar.gz minecraft-hour6.tar.gz
-mv minecraft-hour4.tar.gz minecraft-hour5.tar.gz
-mv minecraft-hour3.tar.gz minecraft-hour4.tar.gz
-mv minecraft-hour2.tar.gz minecraft-hour3.tar.gz
-mv minecraft-hour1.tar.gz minecraft-hour2.tar.gz
-mv minecraft-hour0.tar.gz minecraft-hour1.tar.gz
-
-tar -cpvzf /root/minecraft/backups/minecraft-hour0.tar.gz /root/minecraft
-
-screen -S Minecraft -X stuff "save-on $(printf '\r')"
-screen -S Minecraft -X stuff "say Backup complete. YEeEeET!. $(printf '\r')"
-{% endhighlight %}
-
-To schedule the backup script to run hourly...
+Easy enough. Before executing my while loop...
 
 {% highlight shell %}
-crontab -e
+#!/bin/sh
+cd servers/rof
+while true
+---- run the java stuff
 {% endhighlight %}
 
-This edits the files located at /var/spool/cron/crontabs.
+But still, the code needed a bit more refactoring. What if I wanted more server instances than just 'rof' and I wanted to use my same run, loop, and backup scripts to execute them? Well I just needed to edit the scripts to accept the name of the server as an argument.
 
-Simply add the following line and the server takes care of the rest.
+run (passes the server name onto loop)
+{% highlight shell %}
+#!/bin/sh
+screen -s "$1" -dm bash -c "./loop $1"
+{% endhighlight %}
 
 {% highlight shell %}
-@hourly /root/minecraft/backup.sh
+#!/bin/sh
+cd /root/minecraft/servers/$1
+while true
+do
+sudo java -Xmx1900M -Dlopg4j.configurationFile=/root/minecraft/servers/$1/log4j2.xml -jar /root/minecraft/servers/$1/minecraft_server.jar nogui
+echo "If you want to completely stop the server process now, press Ctrl+C before the time is up!"
+echo "Rebooting in:"
+for i in 5 4 3 2 1
+do
+echo "\$i..."
+sleep 1
+done
+echo "Rebooting now!"
+done
 {% endhighlight %}
 
-I've got a little bit (actually A LOT) more to learn about minecraft server maintenance, but I think it's going to be a fun little side project.
+Now I can exectue these scripts on different servers without having to refactor. Next up, I'd like to automate the server creation process and perhaps expose these functions over http endpoints.
+
+And finally, a keen eye would have also picked up on the addition of...
+{% highlight shell %}
+-Dlopg4j.configurationFile=/root/minecraft/servers/\$1/log4j2.xml
+{% endhighlight %}
+
+Well.....that's for the next post, and is a solution I've found to deal with the RIDICULOUS amount of log spam all these minecraft plugins generate. How do you weed out all the junk so that you can actually debug the server?
